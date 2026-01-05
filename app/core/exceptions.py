@@ -45,11 +45,15 @@ class AppException(Exception):
             - INVALID_STATUS (400)
             - QUANTITY_EXCEEDED (400)
             - INVALID_REQUEST_NAME (400)
+            - ITEM_NOT_FOUND (404)
+        
+        Product:
+            - PRODUCT_NOT_FOUND (404)
+            - CATALOG_NOT_LOADED (500)
         
         General:
             - VALIDATION_ERROR (422)
             - INTERNAL_ERROR (500)
-            - CATALOG_NOT_LOADED (500)
     """
     
     def __init__(
@@ -232,6 +236,26 @@ def invalid_request_name(name: str, reason: str) -> AppException:
     )
 
 
+def item_not_found(upc: str) -> AppException:
+    """Create item not found exception."""
+    return AppException(
+        f"Item with UPC '{upc}' not found in request",
+        "ITEM_NOT_FOUND",
+        404,
+        {"upc": upc}
+    )
+
+
+def product_not_found(upc: str) -> AppException:
+    """Create product not found exception."""
+    return AppException(
+        f"Product with UPC '{upc}' not found",
+        "PRODUCT_NOT_FOUND",
+        404,
+        {"upc": upc}
+    )
+
+
 def catalog_not_loaded() -> AppException:
     """Create catalog not loaded exception."""
     return AppException(
@@ -239,6 +263,11 @@ def catalog_not_loaded() -> AppException:
         "CATALOG_NOT_LOADED",
         500
     )
+
+
+def validation_error(message: str, details: Optional[Dict[str, Any]] = None) -> AppException:
+    """Create validation error exception."""
+    return AppException(message, "VALIDATION_ERROR", 422, details)
 
 
 def internal_error(message: str = "Internal server error") -> AppException:

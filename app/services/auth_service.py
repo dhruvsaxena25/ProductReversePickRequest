@@ -64,8 +64,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import User
 from app.core.security import SecurityManager, get_security_manager
-from app.core.exceptions import AppException
-
+from app.core import exceptions
 
 
 # Module logger
@@ -158,17 +157,17 @@ class AuthService:
         
         if not user:
             logger.warning(f"Login failed: user not found - {normalized_username}")
-            raise AppException.invalid_credentials()
+            raise exceptions.invalid_credentials()
         
         # Verify password
         if not self._security.verify_password(password, user.password_hash):
             logger.warning(f"Login failed: invalid password - {normalized_username}")
-            raise AppException.invalid_credentials()
+            raise exceptions.invalid_credentials()
         
         # Check if account is active
         if not user.is_active:
             logger.warning(f"Login failed: account disabled - {normalized_username}")
-            raise AppException.account_disabled()
+            raise exceptions.account_disabled()
         
         # Generate tokens
         access_token, refresh_token = self._generate_tokens(user)
@@ -211,26 +210,26 @@ class AuthService:
         
         if not payload:
             logger.warning("Token refresh failed: invalid or expired token")
-            raise AppException.token_expired()
+            raise exceptions.token_expired()
         
         # Extract user ID
         user_id = payload.get("sub")
         
         if not user_id:
             logger.warning("Token refresh failed: missing 'sub' claim")
-            raise AppException.token_invalid()
+            raise exceptions.token_invalid()
         
         # Load user
         user = self._db.query(User).filter(User.id == user_id).first()
         
         if not user:
             logger.warning(f"Token refresh failed: user not found - {user_id}")
-            raise AppException.user_not_found(user_id)
+            raise exceptions.user_not_found(user_id)
         
         # Check if account is active
         if not user.is_active:
             logger.warning(f"Token refresh failed: account disabled - {user.username}")
-            raise AppException.account_disabled()
+            raise exceptions.account_disabled()
         
         # Generate new tokens
         access_token, new_refresh_token = self._generate_tokens(user)
@@ -280,7 +279,7 @@ class AuthService:
             user.password_hash
         ):
             logger.warning(f"Password change failed: invalid current password - {user.username}")
-            raise AppException.invalid_credentials()
+            raise exceptions.invalid_credentials()
         
         # Hash and set new password
         user.password_hash = self._security.hash_password(new_password)
@@ -347,5 +346,5 @@ class AuthService:
             AppException: ACCOUNT_DISABLED if user is inactive
         """
         if not user.is_active:
-            raise AppException.account_disabled()
+            raise exceptions.account_disabled()
         return True

@@ -41,7 +41,7 @@ from app.db.models import (
     User, PickRequest, PickRequestItem, 
     RequestStatus, RequestPriority, ShortageReason
 )
-from app.core.exceptions import AppException
+from app.core import exceptions
 from app.utils.validators import RequestNameValidator
 from app.utils.pick_logger import PickLogger
 from app.schemas.pick_request import (
@@ -149,8 +149,8 @@ class PickRequestService:
         
         if not available:
             if error == "Request name already exists":
-                raise AppException.request_name_exists(data.name)
-            raise AppException.invalid_request_name(data.name, error or "Invalid")
+                raise exceptions.request_name_exists(data.name)
+            raise exceptions.invalid_request_name(data.name, error or "Invalid")
         
         # Create request with priority and notes
         request = PickRequest(
@@ -180,7 +180,7 @@ class PickRequestService:
             
         except IntegrityError:
             self._db.rollback()
-            raise AppException.request_name_exists(data.name)
+            raise exceptions.request_name_exists(data.name)
     
     def delete_request(self, name: str, user: User) -> bool:
         """
@@ -202,11 +202,11 @@ class PickRequestService:
         
         # Check authorization
         if not user.is_admin and request.created_by != user.id:
-            raise AppException.forbidden("Only owner or admin can delete")
+            raise exceptions.forbidden("Only owner or admin can delete")
         
         # Check status
         if request.status != RequestStatus.PENDING:
-            raise AppException.invalid_status(
+            raise exceptions.invalid_status(
                 request.status.value,
                 RequestStatus.PENDING.value
             )
@@ -237,7 +237,7 @@ class PickRequestService:
         request = self._load_with_relations(name.lower())
         
         if not request:
-            raise AppException.request_not_found(name)
+            raise exceptions.request_not_found(name)
         
         return request
     
@@ -337,7 +337,7 @@ class PickRequestService:
         
         # Check status
         if request.status != RequestStatus.PENDING:
-            raise AppException.invalid_status(
+            raise exceptions.invalid_status(
                 request.status.value,
                 RequestStatus.PENDING.value
             )
@@ -345,7 +345,7 @@ class PickRequestService:
         # Check lock
         if request.is_locked:
             locker_name = request.locker.username if request.locker else "unknown"
-            raise AppException.request_locked(locker_name)
+            raise exceptions.request_locked(locker_name)
         
         # Update request
         request.status = RequestStatus.IN_PROGRESS
@@ -393,7 +393,7 @@ class PickRequestService:
                 break
         
         if not item:
-            raise AppException.item_not_found(upc)
+            raise exceptions.item_not_found(upc)
         
         # Calculate new quantity
         if update.picked_qty is not None:
@@ -403,7 +403,7 @@ class PickRequestService:
         
         # Validate
         if new_qty > item.requested_qty:
-            raise AppException.quantity_exceeded(item.remaining)
+            raise exceptions.quantity_exceeded(item.remaining)
         
         if new_qty < 0:
             new_qty = 0
@@ -457,7 +457,7 @@ class PickRequestService:
         if has_shortages and validate_shortages:
             for item in request.items:
                 if item.has_shortage and item.shortage_reason is None:
-                    raise AppException.validation_error(
+                    raise exceptions.validation_error(
                         f"Shortage reason required for '{item.product_name}' "
                         f"(picked {item.picked_qty}/{item.requested_qty})"
                     )
@@ -516,7 +516,7 @@ class PickRequestService:
                 break
         
         if not item:
-            raise AppException.item_not_found(upc)
+            raise exceptions.item_not_found(upc)
         
         # Set shortage info
         item.shortage_reason = update.shortage_reason
@@ -593,10 +593,10 @@ class PickRequestService:
         
         # Check authorization
         if not user.is_admin and request.locked_by != user.id:
-            raise AppException.forbidden("Only lock holder or admin can release")
+            raise exceptions.forbidden("Only lock holder or admin can release")
         
         if request.status != RequestStatus.IN_PROGRESS:
-            raise AppException.invalid_status(
+            raise exceptions.invalid_status(
                 request.status.value,
                 RequestStatus.IN_PROGRESS.value
             )
@@ -628,12 +628,11 @@ class PickRequestService:
     def _verify_lock(self, request: PickRequest, user: User) -> None:
         """Verify user holds lock on request."""
         if request.status != RequestStatus.IN_PROGRESS:
-            raise AppException.invalid_status(
+            raise exceptions.invalid_status(
                 request.status.value,
                 RequestStatus.IN_PROGRESS.value
             )
         
         if not request.is_locked_by(user.id) and not user.is_admin:
             locker_name = request.locker.username if request.locker else "unknown"
-            raise AppException.request_locked(locker_name)
-
+            raise exceptions.request_locked(locker_name)

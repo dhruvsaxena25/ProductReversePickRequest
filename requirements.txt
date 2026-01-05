@@ -1,24 +1,69 @@
-# FastAPI
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-python-multipart>=0.0.6
+# ==============================================================================
+# BARCODE SCANNER API - PRODUCTION DEPENDENCIES
+# ==============================================================================
+# Install with: pip install -r requirements.txt
+# ==============================================================================
 
-# Database
+# ==============================================================================
+# WEB FRAMEWORK & SERVER
+# ==============================================================================
+# FastAPI: Modern, high-performance web framework for building APIs
+fastapi>=0.109.0,<1.0.0
+
+# Uvicorn: Lightning-fast ASGI server implementation
+# [standard] includes uvloop (faster event loop) and httptools
+uvicorn[standard]>=0.27.0,<1.0.0
+
+# Python-multipart: Required for form data and file uploads
+python-multipart>=0.0.6,<1.0.0
+
+# ==============================================================================
+# DATABASE
+# ==============================================================================
+# SQLAlchemy: Python SQL toolkit and Object-Relational Mapping (ORM)
+# Version 2.0+ for modern async support and improved type hints
+sqlalchemy>=2.0.0,<3.0.0
 psycopg[binary]
-sqlalchemy>=2.0.0
 
-# Authentication
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+# ==============================================================================
+# AUTHENTICATION & SECURITY
+# ==============================================================================
+# Python-jose: JavaScript Object Signing and Encryption implementation
+# [cryptography] backend for secure token signing
+python-jose[cryptography]>=3.3.0,<4.0.0
 
-# Validation
-pydantic>=2.5.0
-pydantic-settings>=2.1.0
+# Passlib: Password hashing library
+# [bcrypt] for industry-standard bcrypt hashing
+passlib[bcrypt]>=1.7.4,<2.0.0
 
-# Barcode Scanner
-opencv-python-headless>=4.9.0
-pyzbar>=0.1.9
-numpy>=1.26.0
+# Bcrypt: Password hashing - PINNED to 4.0.1 for passlib compatibility
+# Note: bcrypt 4.1+ has breaking changes with passlib
+bcrypt==4.0.1
 
-# Utilities
-python-dotenv>=1.0.0
+# ==============================================================================
+# DATA VALIDATION & SETTINGS
+# ==============================================================================
+# Pydantic: Data validation using Python type annotations
+pydantic>=2.5.0,<3.0.0
+
+# Pydantic-settings: Settings management for Pydantic
+pydantic-settings>=2.1.0,<3.0.0
+
+# ==============================================================================
+# BARCODE SCANNING
+# ==============================================================================
+# OpenCV: Computer vision library for image processing
+# headless version (no GUI dependencies) for server deployment
+opencv-python-headless>=4.9.0,<5.0.0
+
+# Pyzbar: Python wrapper for zbar barcode reader
+pyzbar>=0.1.9,<1.0.0
+
+# NumPy: Numerical computing library (required by OpenCV)
+numpy>=1.26.0,<2.0.0
+
+# ==============================================================================
+# UTILITIES
+# ==============================================================================
+# Python-dotenv: Load environment variables from .env files
+python-dotenv>=1.0.0,<2.0.0

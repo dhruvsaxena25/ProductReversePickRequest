@@ -30,7 +30,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models import User, UserRole
 from app.core.security import get_security_manager, SecurityManager
-from app.core.exceptions import AppException
+from app.core import exceptions
 from app.schemas.user import UserCreate, UserUpdate
 
 
@@ -108,7 +108,7 @@ class UserService:
         
         if existing:
             logger.warning(f"User creation failed: username exists - {data.username}")
-            raise AppException.username_exists(data.username)
+            raise exceptions.username_exists(data.username)
         
         # Create user with hashed password
         user = User(
@@ -128,7 +128,7 @@ class UserService:
             
         except IntegrityError:
             self._db.rollback()
-            raise AppException.username_exists(data.username)
+            raise exceptions.username_exists(data.username)
     
     # =========================================================================
     # READ OPERATIONS
@@ -151,7 +151,7 @@ class UserService:
         
         if not user:
             logger.warning(f"User not found: {user_id}")
-            raise AppException.user_not_found(user_id)
+            raise exceptions.user_not_found(user_id)
         
         return user
     

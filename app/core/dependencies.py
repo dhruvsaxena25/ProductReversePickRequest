@@ -67,7 +67,7 @@ from sqlalchemy.orm import Session
 from app.db.database import DatabaseManager
 from app.db.models import User, UserRole
 from app.core.security import SecurityManager, get_security_manager
-from app.core.exceptions import ExceptionFactory
+from app.core import exceptions
 
 
 # Module logger
@@ -137,7 +137,7 @@ class AuthenticationManager:
         """
         if not credentials:
             logger.debug("No authorization credentials provided")
-            raise ExceptionFactory.token_invalid()
+            raise exceptions.token_invalid()
         
         return credentials.credentials
     
@@ -159,7 +159,7 @@ class AuthenticationManager:
         """
         if not token:
             logger.debug("No token in query parameter")
-            raise ExceptionFactory.token_invalid()
+            raise exceptions.token_invalid()
         
         return token
     
@@ -196,26 +196,26 @@ class AuthenticationManager:
         
         if not payload:
             logger.debug("Token verification failed")
-            raise ExceptionFactory.token_expired()
+            raise exceptions.token_expired()
         
         # Extract user ID from payload
         user_id = payload.get("sub")
         
         if not user_id:
             logger.warning("Token payload missing 'sub' claim")
-            raise ExceptionFactory.token_invalid()
+            raise exceptions.token_invalid()
         
         # Load user from database
         user = self._db.query(User).filter(User.id == user_id).first()
         
         if not user:
             logger.warning(f"User not found for token: {user_id}")
-            raise ExceptionFactory.user_not_found(user_id)
+            raise exceptions.user_not_found(user_id)
         
         # Check if user is active
         if not user.is_active:
             logger.warning(f"Disabled user attempted access: {user.username}")
-            raise ExceptionFactory.account_disabled()
+            raise exceptions.account_disabled()
         
         logger.debug(f"User authenticated: {user.username}")
         return user
@@ -311,13 +311,13 @@ class AuthenticationManager:
             
             # Raise appropriate exception based on required role
             if UserRole.ADMIN in allowed_roles:
-                raise ExceptionFactory.admin_required()
+                raise exceptions.admin_required()
             elif UserRole.PICKER in allowed_roles:
-                raise ExceptionFactory.picker_required()
+                raise exceptions.picker_required()
             elif UserRole.REQUESTER in allowed_roles:
-                raise ExceptionFactory.requester_required()
+                raise exceptions.requester_required()
             else:
-                raise ExceptionFactory.forbidden()
+                raise exceptions.forbidden()
         
         return user
     
