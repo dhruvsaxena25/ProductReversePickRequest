@@ -22,7 +22,7 @@ class MainAPIRouter:
     
     def __init__(self):
         """Initialize the main router with all sub-routers."""
-        self._router = APIRouter(prefix="/api/v1")
+        self._router = APIRouter()
         self._include_routers()
     
     def _include_routers(self) -> None:

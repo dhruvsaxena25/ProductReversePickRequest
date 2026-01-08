@@ -237,7 +237,7 @@ async def list_pick_requests(
     priority: Optional[RequestPriority] = Query(None),
     mine: bool = Query(False),
     offset: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=1000),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

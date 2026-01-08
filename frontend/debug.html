@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug - Pick Request System</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+        }
+        .status { margin: 10px 0; }
+        .success { color: #0f0; }
+        .error { color: #f00; }
+        .warning { color: #ff0; }
+        button { 
+            background: #0f0; 
+            color: #000; 
+            padding: 10px 20px; 
+            border: none; 
+            cursor: pointer;
+            margin: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 System Diagnostics</h1>
+    <div id="status"></div>
+    <br>
+    <button onclick="runTests()">Run All Tests</button>
+    <button onclick="clearStorage()">Clear Storage</button>
+    <button onclick="window.location.href='/'">Go to App</button>
+
+    <script src="js/utils.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+
+    <script>
+        const log = (msg, type = 'success') => {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.textContent = `${type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️'} ${msg}`;
+            document.getElementById('status').appendChild(div);
+        };
+
+        async function runTests() {
+            document.getElementById('status').innerHTML = '';
+            
+            // Test 1: Utils loaded
+            log('Testing Utils...');
+            if (typeof Utils !== 'undefined') {
+                log('Utils.js loaded successfully');
+            } else {
+                log('Utils.js NOT loaded', 'error');
+                return;
+            }
+
+            // Test 2: API loaded
+            log('Testing API...');
+            if (typeof API !== 'undefined') {
+                log(`API.js loaded - baseURL: ${API.baseURL}`);
+            } else {
+                log('API.js NOT loaded', 'error');
+                return;
+            }
+
+            // Test 3: Auth loaded
+            log('Testing Auth...');
+            if (typeof Auth !== 'undefined') {
+                log('Auth.js loaded successfully');
+            } else {
+                log('Auth.js NOT loaded', 'error');
+                return;
+            }
+
+            // Test 4: Backend health
+            log('Testing backend connection...');
+            try {
+                const response = await fetch('http://localhost:8000/api/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`Backend healthy: ${JSON.stringify(data)}`);
+                } else {
+                    log(`Backend returned ${response.status}`, 'warning');
+                }
+            } catch (error) {
+                log(`Backend connection failed: ${error.message}`, 'error');
+            }
+
+            // Test 5: Products API
+            log('Testing products API...');
+            try {
+                const response = await fetch('http://localhost:8000/api/products?limit=5');
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`Products API working: ${data.length} products retrieved`);
+                } else {
+                    log(`Products API returned ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`Products API failed: ${error.message}`, 'error');
+            }
+
+            // Test 6: Storage
+            log('Testing localStorage...');
+            try {
+                Utils.storage.set('test_key', 'test_value');
+                const retrieved = Utils.storage.get('test_key');
+                if (retrieved === 'test_value') {
+                    log('localStorage working correctly');
+                    Utils.storage.remove('test_key');
+                } else {
+                    log('localStorage not working correctly', 'error');
+                }
+            } catch (error) {
+                log(`localStorage error: ${error.message}`, 'error');
+            }
+
+            // Test 7: Auth initialization
+            log('Testing Auth initialization...');
+            try {
+                const isAuth = await Auth.initialize();
+                log(`Auth initialized: ${isAuth ? 'User logged in' : 'No user logged in'}`);
+            } catch (error) {
+                log(`Auth initialization error: ${error.message}`, 'error');
+            }
+
+            log('='.repeat(50));
+            log('All tests complete!');
+        }
+
+        function clearStorage() {
+            localStorage.clear();
+            log('Storage cleared!', 'warning');
+            log('Refresh the page or click "Go to App"', 'warning');
+        }
+
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(runTests, 100);
+        });
+    </script>
+</body>
+</html>

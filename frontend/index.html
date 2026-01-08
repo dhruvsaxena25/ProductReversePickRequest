@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pick Request System</title>
+
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/auth.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/scanner.css">
+    <link rel="stylesheet" href="css/components.css">
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav id="navbar"></nav>
+
+    <!-- Main Content Area -->
+    <main id="main-content">
+        <div class="loader-container">
+            <div class="loader"></div>
+            <p style="margin-top: 1rem; color: #6B7280;">Loading Application...</p>
+        </div>
+    </main>
+
+    <!-- Core Scripts -->
+    <script src="js/utils.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+
+    <!-- Component Scripts -->
+    <script src="js/components/navbar.js"></script>
+    <script src="js/components/modal.js"></script>
+    <script src="js/components/notifications.js"></script>
+
+    <!-- WebSocket Scripts -->
+    <script src="js/scanner.js"></script>
+    <script src="js/picker.js"></script>
+    <script src="js/requester.js"></script>
+
+    <!-- Page Scripts -->
+    <script src="js/pages/login.js"></script>
+    <script src="js/pages/dashboard.js"></script>
+    <script src="js/pages/products.js"></script>
+    <script src="js/pages/pickRequests.js"></script>
+    <script src="js/pages/pickRequestDetail.js"></script>
+    <script src="js/pages/createRequest.js"></script>
+    <script src="js/pages/pickScanner.js"></script>
+    <script src="js/pages/users.js"></script>
+
+    <!-- App Initialization -->
+    <script src="js/app.js"></script>
+</body>
+</html>
