@@ -58,14 +58,28 @@ Database Schema:
 
 State Machine:
 -------------
-    ┌─────────┐    start()    ┌─────────────┐   submit()   ┌───────────┐
-    │ PENDING │──────────────▶│ IN_PROGRESS │─────────────▶│ COMPLETED │
-    └─────────┘               └──────┬──────┘              └───────────┘
-         ▲                           │
-         │         release()         │
-         └───────────────────────────┘
+                                    ┌─────────────┐
+                                    │  CANCELLED  │
+                                    └─────────────┘
+                                          ▲
+                                          │ cancel()
+                                          │
+┌─────────┐  start()   ┌─────────────┐  submit()  ┌───────────────────┐
+│ PENDING │ ─────────▶ │ IN_PROGRESS │ ─────────▶ │     COMPLETED     │
+└─────────┘            └─────────────┘            └───────────────────┘
+     ▲                    │       ▲                        ▲
+     │                    │       │                        │
+     │ release()    pause()│       │ resume()               │ approve()
+     │                    ▼       │                        │
+     │               ┌─────────┐  │               ┌────────────────────┐
+     └───────────────│ PAUSED  │──┘               │ PARTIALLY_COMPLETED│
+                     └─────────┘                  └────────────────────┘
+                                                          │
+                                                          │ resume()
+                                                          ▼
+                                                    IN_PROGRESS
 
-==============================================================================
+=============================================================================
 """
 
 from __future__ import annotations
@@ -122,26 +136,75 @@ class RequestStatus(str, enum.Enum):
     
     Defines the state machine for pick requests:
     
+    Status Definitions:
     - PENDING: Request created, waiting for a picker
     - IN_PROGRESS: Picker has started, request is locked
+    - PAUSED: Picker on break, lock retained
     - COMPLETED: Picking finished, all items fully picked
-    - PARTIALLY_COMPLETED: Picking finished, some items short
+    - PARTIALLY_COMPLETED: Picking finished with shortages, needs review
+    - CANCELLED: Request abandoned/cancelled
     
-    Valid transitions:
+    State Machine:
+    
+                                        ┌─────────────┐
+                                        │  CANCELLED  │
+                                        └─────────────┘
+                                              ▲
+                                              │ cancel()
+                                              │
+    ┌─────────┐  start()   ┌─────────────┐  submit()  ┌───────────────────┐
+    │ PENDING │ ─────────▶ │ IN_PROGRESS │ ─────────▶ │     COMPLETED     │
+    └─────────┘            └─────────────┘            └───────────────────┘
+         ▲                    │       ▲                        ▲
+         │                    │       │                        │
+         │ release()    pause()│       │ resume()               │ approve()
+         │                    ▼       │                        │
+         │               ┌─────────┐  │               ┌────────────────────┐
+         └───────────────│ PAUSED  │──┘               │ PARTIALLY_COMPLETED│
+                         └─────────┘                  └────────────────────┘
+                                                              │
+                                                              │ resume()
+                                                              ▼
+                                                        IN_PROGRESS
+    
+    Valid Transitions:
     - PENDING → IN_PROGRESS (picker starts)
-    - IN_PROGRESS → COMPLETED (picker submits, all fulfilled)
-    - IN_PROGRESS → PARTIALLY_COMPLETED (picker submits, some short)
-    - IN_PROGRESS → PENDING (picker releases lock)
+    - PENDING → CANCELLED (requester/admin cancels)
+    - IN_PROGRESS → PAUSED (picker takes break)
+    - IN_PROGRESS → COMPLETED (submit, all fulfilled)
+    - IN_PROGRESS → PARTIALLY_COMPLETED (submit with shortages)
+    - IN_PROGRESS → CANCELLED (admin cancels)
+    - PAUSED → IN_PROGRESS (picker resumes)
+    - PAUSED → PENDING (picker releases)
+    - PARTIALLY_COMPLETED → IN_PROGRESS (resume to fix shortages)
+    - PARTIALLY_COMPLETED → COMPLETED (approve as-is)
     """
     
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
+    PAUSED = "paused"
     COMPLETED = "completed"
     PARTIALLY_COMPLETED = "partially_completed"
+    CANCELLED = "cancelled"
     
     def __str__(self) -> str:
         """Return the enum value as string."""
         return self.value
+    
+    @property
+    def is_active(self) -> bool:
+        """Check if status is an active picking state."""
+        return self in [RequestStatus.IN_PROGRESS, RequestStatus.PAUSED]
+    
+    @property
+    def is_terminal(self) -> bool:
+        """Check if status is a terminal (final) state."""
+        return self in [RequestStatus.COMPLETED, RequestStatus.CANCELLED]
+    
+    @property
+    def can_be_picked(self) -> bool:
+        """Check if items can be updated in this status."""
+        return self == RequestStatus.IN_PROGRESS
 
 
 class RequestPriority(str, enum.Enum):

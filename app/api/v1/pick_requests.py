@@ -167,6 +167,42 @@ class PickRequestController:
         """Release lock."""
         request = self._service.release_lock(name, user)
         return PickRequestResponse(request=PickRequestDetail.from_model(request))
+    
+    def resume(self, name: str, user: User) -> dict:
+        """Resume picking a paused or partially completed request."""
+        request = self._service.resume_picking(name, user)
+        return {
+            "success": True,
+            "message": "Pick request resumed",
+            "request": PickRequestDetail.from_model(request)
+        }
+    
+    def pause(self, name: str, user: User) -> dict:
+        """Pause picking (keep lock)."""
+        request = self._service.pause_picking(name, user)
+        return {
+            "success": True,
+            "message": "Pick request paused",
+            "request": PickRequestDetail.from_model(request)
+        }
+    
+    def cancel(self, name: str, user: User) -> dict:
+        """Cancel the request."""
+        request = self._service.cancel_request(name, user)
+        return {
+            "success": True,
+            "message": "Pick request cancelled",
+            "request": PickRequestDetail.from_model(request)
+        }
+    
+    def approve(self, name: str, user: User, notes: Optional[str] = None) -> dict:
+        """Approve partially completed request as complete."""
+        request = self._service.approve_request(name, user, notes)
+        return {
+            "success": True,
+            "message": "Pick request approved and completed",
+            "request": PickRequestDetail.from_model(request)
+        }
 
 
 # ==== NAME VALIDATION ====
@@ -316,9 +352,79 @@ async def release_lock(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Release lock and return request to pending."""
+    """
+    Release lock and return request to pending.
+    
+    Can be called from: in_progress, paused, or partially_completed.
+    Progress (picked quantities) is preserved.
+    """
     controller = PickRequestController(db)
     return controller.release(name, user)
+
+
+@router.post("/{name}/resume")
+async def resume_picking(
+    name: str,
+    user: User = Depends(require_picker),
+    db: Session = Depends(get_db)
+):
+    """
+    Resume picking a paused or partially completed request (Picker/Admin only).
+    
+    - From PAUSED: same picker must resume (or admin)
+    - From PARTIALLY_COMPLETED: any picker can pick it up
+    """
+    controller = PickRequestController(db)
+    return controller.resume(name, user)
+
+
+@router.post("/{name}/pause")
+async def pause_picking(
+    name: str,
+    user: User = Depends(require_picker),
+    db: Session = Depends(get_db)
+):
+    """
+    Pause picking a request (Picker/Admin only).
+    
+    Lock is retained - only same picker can resume.
+    Use this for breaks, will resume later.
+    """
+    controller = PickRequestController(db)
+    return controller.pause(name, user)
+
+
+@router.post("/{name}/cancel")
+async def cancel_request(
+    name: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Cancel a pick request (Creator/Admin only).
+    
+    Can cancel from: pending, in_progress, paused, or partially_completed.
+    Cannot cancel completed or already cancelled requests.
+    """
+    controller = PickRequestController(db)
+    return controller.cancel(name, user)
+
+
+@router.post("/{name}/approve")
+async def approve_request(
+    name: str,
+    notes: Optional[str] = Query(None, description="Approval notes"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Approve a partially completed request as complete (Creator/Admin only).
+    
+    Use this to accept a request with shortages as-is.
+    Moves status from PARTIALLY_COMPLETED to COMPLETED.
+    """
+    controller = PickRequestController(db)
+    return controller.approve(name, user, notes)
 
 
 # ==== CLEANUP (Admin Only) ====

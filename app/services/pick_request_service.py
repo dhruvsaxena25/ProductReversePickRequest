@@ -8,20 +8,39 @@ Production-grade service for pick request management and workflow.
 This module implements:
 - PickRequestService: Class handling pick request lifecycle
 - Request creation and deletion
-- Picking workflow (start, update, submit, release)
+- Picking workflow (start, pause, resume, submit, release, cancel, approve)
 - Quantity management with validation
 
 State Machine:
 -------------
-    PENDING ──start()──▶ IN_PROGRESS ──submit()──▶ COMPLETED
-       ▲                      │
-       └────── release() ─────┘
+                                    ┌─────────────┐
+                                    │  CANCELLED  │
+                                    └─────────────┘
+                                          ▲
+                                          │ cancel()
+                                          │
+┌─────────┐  start()   ┌─────────────┐  submit()  ┌───────────────────┐
+│ PENDING │ ─────────▶ │ IN_PROGRESS │ ─────────▶ │     COMPLETED     │
+└─────────┘            └─────────────┘            └───────────────────┘
+     ▲                    │       ▲                        ▲
+     │                    │       │                        │
+     │ release()    pause()│       │ resume()               │ approve()
+     │                    ▼       │                        │
+     │               ┌─────────┐  │               ┌────────────────────┐
+     └───────────────│ PAUSED  │──┘               │ PARTIALLY_COMPLETED│
+                     └─────────┘                  └────────────────────┘
+                                                          │
+                                                          │ resume()
+                                                          ▼
+                                                    IN_PROGRESS
 
 Locking Mechanism:
 -----------------
 When a picker starts a request, it becomes locked to that user.
+The lock is retained during PAUSED state.
 Only the lock holder (or admin) can:
 - Update item quantities
+- Pause/resume picking
 - Submit the completed request
 - Release the lock
 
@@ -358,6 +377,36 @@ class PickRequestService:
         logger.info(f"✅ Picking started: {name} by {user.username}")
         return self._load_with_relations(name)
     
+    def pause_picking(self, name: str, user: User) -> PickRequest:
+        """
+        Pause picking a request (e.g., for break).
+        
+        Keeps the lock but changes status to PAUSED.
+        
+        Args:
+            name: Request name
+            user: Picker user (must hold lock)
+            
+        Returns:
+            Updated PickRequest
+            
+        Raises:
+            AppException: If not in_progress or not lock holder
+        """
+        request = self.get_by_name(name)
+        
+        # Verify lock ownership
+        self._verify_lock(request, user)
+        
+        # Update status
+        request.status = RequestStatus.PAUSED
+        request.last_activity_at = datetime.utcnow()
+        
+        self._db.commit()
+        
+        logger.info(f"⏸️ Picking paused: {name} by {user.username}")
+        return self._load_with_relations(name)
+    
     def update_item_quantity(
         self,
         name: str,
@@ -582,6 +631,9 @@ class PickRequestService:
         """
         Release lock and return request to pending.
         
+        Can be called from IN_PROGRESS, PAUSED, or PARTIALLY_COMPLETED status.
+        Progress is preserved (picked quantities remain).
+        
         Args:
             name: Request name
             user: User (must be lock holder or admin)
@@ -595,22 +647,152 @@ class PickRequestService:
         if not user.is_admin and request.locked_by != user.id:
             raise exceptions.forbidden("Only lock holder or admin can release")
         
-        if request.status != RequestStatus.IN_PROGRESS:
+        # Allow release from in_progress, paused, or partially_completed
+        allowed_statuses = [
+            RequestStatus.IN_PROGRESS, 
+            RequestStatus.PAUSED,
+            RequestStatus.PARTIALLY_COMPLETED
+        ]
+        if request.status not in allowed_statuses:
             raise exceptions.invalid_status(
                 request.status.value,
-                RequestStatus.IN_PROGRESS.value
+                "in_progress, paused, or partially_completed"
             )
         
-        # Release lock
+        # Release lock (preserve started_at for tracking)
         old_locker = request.locker.username if request.locker else "unknown"
         request.status = RequestStatus.PENDING
         request.locked_by = None
-        request.started_at = None
-        request.last_activity_at = None
+        request.last_activity_at = datetime.utcnow()
         
         self._db.commit()
         
         logger.info(f"🔓 Lock released: {name} (was locked by {old_locker})")
+        return self._load_with_relations(name)
+    
+    def resume_picking(self, name: str, user: User) -> PickRequest:
+        """
+        Resume picking a paused or partially completed request.
+        
+        Locks the request to this user and changes status back to IN_PROGRESS.
+        
+        Args:
+            name: Request name
+            user: Picker user
+            
+        Returns:
+            Updated PickRequest
+            
+        Raises:
+            AppException: If not paused/partially_completed or locked by another
+        """
+        request = self.get_by_name(name)
+        
+        # Check status - allow resume from PAUSED or PARTIALLY_COMPLETED
+        allowed_statuses = [RequestStatus.PAUSED, RequestStatus.PARTIALLY_COMPLETED]
+        if request.status not in allowed_statuses:
+            raise exceptions.invalid_status(
+                request.status.value,
+                "paused or partially_completed"
+            )
+        
+        # Check lock
+        # - If PAUSED: must be same user (or admin)
+        # - If PARTIALLY_COMPLETED: anyone can pick it up
+        if request.status == RequestStatus.PAUSED:
+            if request.is_locked and request.locked_by != user.id:
+                if not user.is_admin:
+                    locker_name = request.locker.username if request.locker else "unknown"
+                    raise exceptions.request_locked(locker_name)
+        
+        # Update request
+        request.status = RequestStatus.IN_PROGRESS
+        request.locked_by = user.id
+        request.last_activity_at = datetime.utcnow()
+        
+        self._db.commit()
+        
+        logger.info(f"▶️ Picking resumed: {name} by {user.username}")
+        return self._load_with_relations(name)
+    
+    def cancel_request(self, name: str, user: User) -> PickRequest:
+        """
+        Cancel a pick request.
+        
+        Can be called from PENDING, IN_PROGRESS, or PAUSED status.
+        Only request creator or admin can cancel.
+        
+        Args:
+            name: Request name
+            user: User (must be creator or admin)
+            
+        Returns:
+            Updated PickRequest (now cancelled)
+        """
+        request = self.get_by_name(name)
+        
+        # Check authorization - only creator or admin can cancel
+        if not user.is_admin and request.created_by != user.id:
+            raise exceptions.forbidden("Only request creator or admin can cancel")
+        
+        # Check status - cannot cancel completed or already cancelled
+        if request.status in [RequestStatus.COMPLETED, RequestStatus.CANCELLED]:
+            raise exceptions.invalid_status(
+                request.status.value,
+                "pending, in_progress, paused, or partially_completed"
+            )
+        
+        # Cancel request
+        request.status = RequestStatus.CANCELLED
+        request.locked_by = None
+        request.last_activity_at = datetime.utcnow()
+        
+        self._db.commit()
+        
+        logger.info(f"❌ Request cancelled: {name} by {user.username}")
+        return self._load_with_relations(name)
+    
+    def approve_request(self, name: str, user: User, notes: Optional[str] = None) -> PickRequest:
+        """
+        Approve a partially completed request as complete.
+        
+        Moves request from PARTIALLY_COMPLETED to COMPLETED.
+        Typically done by admin/requester after reviewing shortages.
+        
+        Args:
+            name: Request name
+            user: User (must be admin or request creator)
+            notes: Optional approval notes
+            
+        Returns:
+            Updated PickRequest (now completed)
+        """
+        request = self.get_by_name(name)
+        
+        # Check authorization - only creator or admin can approve
+        if not user.is_admin and request.created_by != user.id:
+            raise exceptions.forbidden("Only request creator or admin can approve")
+        
+        # Check status
+        if request.status != RequestStatus.PARTIALLY_COMPLETED:
+            raise exceptions.invalid_status(
+                request.status.value,
+                RequestStatus.PARTIALLY_COMPLETED.value
+            )
+        
+        # Approve and complete
+        request.status = RequestStatus.COMPLETED
+        request.completed_at = datetime.utcnow()
+        request.last_activity_at = datetime.utcnow()
+        
+        if notes:
+            existing_notes = request.notes or ""
+            approval_note = f"\n[APPROVED by {user.username}]: {notes}"
+            request.notes = existing_notes + approval_note
+        
+        self._db.commit()
+        
+        logger.info(f"✅ Request approved: {name} by {user.username}")
         return self._load_with_relations(name)
     
     # =========================================================================
