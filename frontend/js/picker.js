@@ -1,21 +1,20 @@
-// js/picker.js - Picker WebSocket Handler (FIXED)
-
+// js/picker.js - Picker WebSocket Handler with Bounding Box Support
 
 class PickerWebSocket {
     constructor(requestName) {
-        this.requestName = requestName;
         this.ws = null;
+        this.requestName = requestName;
         this.videoElement = null;
         this.canvasElement = null;
+        this.overlayCanvas = null;
         this.isScanning = false;
         this.frameInterval = null;
         this.onInit = null;
         this.onDetection = null;
         this.onUpdate = null;
-        this.onWarning = null;
         this.onStatus = null;
+        this.lastDetections = [];
     }
-
 
     async connect() {
         const token = Auth.getAccessToken();
@@ -24,8 +23,7 @@ class PickerWebSocket {
         }
 
         return new Promise((resolve, reject) => {
-            // FIXED: Use correct API method
-            this.ws = API.websocket.picker(this.requestName, token);
+            this.ws = API.websocket.pickRequest(this.requestName, token);
 
             this.ws.onopen = () => {
                 console.log('Picker WebSocket connected');
@@ -49,10 +47,7 @@ class PickerWebSocket {
         });
     }
 
-
     handleMessage(data) {
-        console.log('WebSocket message:', data);
-
         switch (data.type) {
             case 'init':
                 console.log('Picker initialized:', data);
@@ -62,25 +57,38 @@ class PickerWebSocket {
                 break;
 
             case 'detection':
-                console.log('Item scanned:', data);
+                console.log('Barcode detected:', data);
+                // Store detections for bounding box drawing
+                if (data.detections) {
+                    this.lastDetections = data.detections;
+                    this.drawBoundingBoxes();
+                }
+                
+                if (data.in_request) {
+                    Notification.success(`Scanned: ${data.product_name}`, 'Item Updated');
+                } else {
+                    Notification.warning('Item not in this request', 'Invalid Scan');
+                }
+                
                 if (this.onDetection) {
                     this.onDetection(data);
                 }
-                if (data.in_request) {
-                    Notification.success(`Scanned: ${data.product_name}`, 'Item Found');
-                }
                 break;
 
-            case 'warning':
-                console.warn('Invalid scan:', data);
-                if (this.onWarning) {
-                    this.onWarning(data);
+            case 'manual_scan':
+                console.log('Manual scan result:', data);
+                if (data.in_request) {
+                    Notification.success(`Updated: ${data.product_name}`, 'Manual Entry');
+                } else {
+                    Notification.warning('UPC not in this request', 'Invalid UPC');
                 }
-                Notification.warning(data.message, 'Not in Request');
+                if (this.onDetection) {
+                    this.onDetection(data);
+                }
                 break;
 
             case 'update':
-                console.log('Quantity updated:', data);
+                console.log('Item updated:', data);
                 if (this.onUpdate) {
                     this.onUpdate(data);
                 }
@@ -96,16 +104,84 @@ class PickerWebSocket {
             case 'error':
                 console.error('Picker error:', data);
                 Notification.error(data.message, 'Error');
-                if (data.code === 'AUTH_REQUIRED' || data.code === 'LOCKED') {
-                    this.stop();
-                }
                 break;
         }
     }
 
+    drawBoundingBoxes() {
+        if (!this.overlayCanvas || !this.videoElement) return;
+
+        const ctx = this.overlayCanvas.getContext('2d');
+        const video = this.videoElement;
+
+        // Clear previous drawings
+        ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+
+        // Skip if video not ready
+        if (!video.videoWidth || !video.videoHeight) return;
+
+        // Calculate scaling factors
+        const scaleX = this.overlayCanvas.width / video.videoWidth;
+        const scaleY = this.overlayCanvas.height / video.videoHeight;
+
+        // Draw each detection
+        this.lastDetections.forEach(detection => {
+            if (!detection.rect) return;
+
+            const { x, y, width, height } = detection.rect;
+            
+            // Scale coordinates to canvas size
+            const scaledX = x * scaleX;
+            const scaledY = y * scaleY;
+            const scaledWidth = width * scaleX;
+            const scaledHeight = height * scaleY;
+
+            // Determine color based on whether item is in request
+            const color = detection.in_request ? '#10b981' : '#ef4444'; // Green if in request, red if not
+
+            // Draw rectangle
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
+
+            // Draw label background
+            const label = detection.product_name || detection.upc;
+            ctx.font = '14px sans-serif';
+            const textMetrics = ctx.measureText(label);
+            const labelHeight = 20;
+            const labelWidth = textMetrics.width + 10;
+
+            ctx.fillStyle = color;
+            ctx.fillRect(scaledX, scaledY - labelHeight, labelWidth, labelHeight);
+
+            // Draw label text
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(label, scaledX + 5, scaledY - 5);
+        });
+    }
 
     async startCamera(videoElementId) {
         this.videoElement = document.getElementById(videoElementId);
+        
+        // Create or get overlay canvas
+        const videoContainer = this.videoElement.parentElement;
+        let existingOverlay = videoContainer.querySelector('.barcode-overlay');
+        
+        if (existingOverlay) {
+            this.overlayCanvas = existingOverlay;
+        } else {
+            this.overlayCanvas = document.createElement('canvas');
+            this.overlayCanvas.className = 'barcode-overlay';
+            this.overlayCanvas.style.position = 'absolute';
+            this.overlayCanvas.style.top = '0';
+            this.overlayCanvas.style.left = '0';
+            this.overlayCanvas.style.width = '100%';
+            this.overlayCanvas.style.height = '100%';
+            this.overlayCanvas.style.pointerEvents = 'none';
+            videoContainer.style.position = 'relative';
+            videoContainer.appendChild(this.overlayCanvas);
+        }
+        
         this.canvasElement = document.createElement('canvas');
 
         try {
@@ -115,24 +191,22 @@ class PickerWebSocket {
             this.videoElement.srcObject = stream;
             await this.videoElement.play();
 
+            // Set overlay canvas size to match video element
+            const resizeOverlay = () => {
+                this.overlayCanvas.width = this.videoElement.offsetWidth;
+                this.overlayCanvas.height = this.videoElement.offsetHeight;
+            };
+            
+            this.videoElement.addEventListener('loadedmetadata', resizeOverlay);
+            resizeOverlay();
+
             this.isScanning = true;
             this.startSending();
-
-            console.log('Camera started successfully');
         } catch (error) {
             console.error('Camera error:', error);
-
-            // Better error messages
-            if (error.name === 'NotAllowedError') {
-                throw new Error('Camera permission denied. Please allow camera access.');
-            } else if (error.name === 'NotFoundError') {
-                throw new Error('No camera found on this device.');
-            } else {
-                throw new Error('Failed to start camera: ' + error.message);
-            }
+            throw error;
         }
     }
-
 
     startSending() {
         this.frameInterval = setInterval(() => {
@@ -157,20 +231,18 @@ class PickerWebSocket {
                     frame: imageData
                 }));
             }
-        }, 300);
+        }, 500);
     }
-
 
     manualUpdate(upc, quantity) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({
                 type: 'manual_update',
                 upc: upc,
-                quantity: quantity
+                quantity: parseInt(quantity)
             }));
         }
     }
-
 
     getStatus() {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -179,7 +251,6 @@ class PickerWebSocket {
             }));
         }
     }
-
 
     stop() {
         this.isScanning = false;
@@ -192,6 +263,12 @@ class PickerWebSocket {
         if (this.videoElement && this.videoElement.srcObject) {
             this.videoElement.srcObject.getTracks().forEach(track => track.stop());
             this.videoElement.srcObject = null;
+        }
+
+        // Clear overlay
+        if (this.overlayCanvas) {
+            const ctx = this.overlayCanvas.getContext('2d');
+            ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
         }
 
         if (this.ws) {

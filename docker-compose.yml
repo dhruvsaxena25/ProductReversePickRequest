@@ -1,0 +1,64 @@
+# ==============================================================================
+# DOCKER COMPOSE - Barcode Scanner API
+# ==============================================================================
+# 
+# Usage:
+#   Production: docker-compose up -d
+#   Development: docker-compose --profile dev up app-dev
+#
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # ============================================================================
+  # PRODUCTION SERVICE
+  # ============================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: barcode-scanner
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist database and logs
+      - ./storage:/app/storage
+      # Mount product catalog (read-only)
+      - ./data:/app/data:ro
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================================================
+  # DEVELOPMENT SERVICE
+  # ============================================================================
+  app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: barcode-scanner-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount entire app for hot reload
+      - ./app:/app/app
+      - ./storage:/app/storage
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=development
+      - DEBUG=true
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    profiles:
+      - dev
